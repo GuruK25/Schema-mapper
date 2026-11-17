@@ -1,0 +1,53 @@
+{
+  "fields": [
+    {
+      "name": "item_code",
+      "type": "string",
+      "domain_hint": "sku",
+      "synonyms": ["art nr", "part number", "ref", "article", "part no", "ref#", "item code", "product code"],
+      "description": "Supplier item identifier",
+      "required": true
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "domain_hint": "description",
+      "synonyms": ["desc", "bezeichnung", "product name", "item name", "product description"]
+    },
+    {
+      "name": "qty_ordered",
+      "type": "number",
+      "domain_hint": "qty",
+      "synonyms": ["order qty", "ordered", "menge bestellt", "quantity ordered", "ord"]
+    },
+    {
+      "name": "qty_shipped",
+      "type": "number",
+      "domain_hint": "qty",
+      "synonyms": ["ship qty", "shipped", "menge geliefert", "quantity delivered", "shp", "delivered"]
+    },
+    {
+      "name": "unit_price",
+      "type": "number",
+      "domain_hint": "unit_price",
+      "synonyms": ["price", "unit price", "stk-preis", "cost", "rate", "up", "price each"]
+    },
+    {
+      "name": "total_price",
+      "type": "number",
+      "domain_hint": "total_price",
+      "synonyms": ["total", "gesamt", "line total", "amount", "line value", "amt"]
+    },
+    {
+      "name": "ship_date",
+      "type": "date",
+      "synonyms": ["date", "lieferdatum", "despatch date", "delivery date", "shipped date", "dispatch date", "dt"]
+    },
+    {
+      "name": "lot_number",
+      "type": "string",
+      "domain_hint": "lot_number",
+      "synonyms": ["lot", "charge", "batch", "serial", "lot no", "bt#"]
+    }
+  ]
+}
