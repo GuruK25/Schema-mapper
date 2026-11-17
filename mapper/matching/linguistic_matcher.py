@@ -1,38 +1,29 @@
 """
 Name-based linguistic matcher.
-Scores supplier column headers against canonical target field names.
+Scores supplier column headers against fields in a caller-provided TargetSchema.
+No hardcoded field names — everything comes from the schema.
 """
 from __future__ import annotations
 from rapidfuzz import fuzz
+from mapper.models import TargetSchema
 
 
-# Canonical target fields with their known synonyms / abbreviations
-TARGET_SYNONYMS: dict[str, list[str]] = {
-    "po_number":      ["po", "purchase order", "order no", "order number", "ponumber", "po#", "order#"],
-    "po_line_number": ["line", "line no", "line#", "lineitem", "line number", "item no", "seq"],
-    "buyer_sku":      ["sku", "item code", "item#", "product code", "our sku", "buyer sku"],
-    "supplier_sku":   ["supplier sku", "vendor sku", "art nr", "article", "article no", "part no", "part#", "ref"],
-    "description":    ["desc", "description", "product name", "item description", "product desc", "name"],
-    "qty_ordered":    ["qty ordered", "ordered qty", "order qty", "quantity ordered", "orig qty"],
-    "qty_shipped":    ["qty", "quantity", "qty shipped", "shipped qty", "units shipped", "quantity shipped", "units"],
-    "unit_price":     ["price", "unit price", "unit cost", "cost", "rate", "stk-preis", "einzelpreis"],
-    "total_price":    ["total", "total price", "line total", "amount", "ext price", "extended price", "gesamt"],
-    "uom":            ["uom", "unit", "unit of measure", "measure", "pack"],
-    "ship_date":      ["ship date", "shipped date", "date shipped", "dispatch date", "shipping date"],
-    "lot_number":     ["lot", "lot no", "lot number", "batch", "batch no", "serial"],
-}
-
-
-def score_column(supplier_header: str, target_field: str) -> float:
+def score_column(supplier_header: str, target_field_name: str, schema: TargetSchema) -> float:
     """
-    Returns similarity score 0.0–1.0 between a supplier header and a target field.
-    Uses token-set ratio to handle word-order differences and partial matches.
+    Returns similarity score 0.0–1.0 between a supplier header and one target field.
+    Matches against the field's name, description, and synonyms.
     """
+    field = _get_field(target_field_name, schema)
+    if field is None:
+        return 0.0
+
     header_norm = _normalize(supplier_header)
-    best = 0.0
+    candidates = [field.name, field.description] + field.synonyms
+    candidates = [c for c in candidates if c]
 
-    for synonym in [target_field] + TARGET_SYNONYMS.get(target_field, []):
-        s = fuzz.token_set_ratio(header_norm, _normalize(synonym)) / 100.0
+    best = 0.0
+    for candidate in candidates:
+        s = fuzz.token_set_ratio(header_norm, _normalize(candidate)) / 100.0
         if s > best:
             best = s
         if best == 1.0:
@@ -41,13 +32,23 @@ def score_column(supplier_header: str, target_field: str) -> float:
     return round(best, 3)
 
 
-def rank_targets(supplier_header: str) -> list[tuple[str, float]]:
+def rank_targets(supplier_header: str, schema: TargetSchema) -> list[tuple[str, float]]:
     """
     Returns all target fields ranked by similarity score, highest first.
     """
-    scores = [(field, score_column(supplier_header, field)) for field in TARGET_SYNONYMS]
+    scores = [
+        (field.name, score_column(supplier_header, field.name, schema))
+        for field in schema.fields
+    ]
     scores.sort(key=lambda x: x[1], reverse=True)
     return scores
+
+
+def _get_field(name: str, schema: TargetSchema):
+    for f in schema.fields:
+        if f.name == name:
+            return f
+    return None
 
 
 def _normalize(text: str) -> str:

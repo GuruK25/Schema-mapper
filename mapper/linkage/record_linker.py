@@ -1,72 +1,90 @@
 """
-Record linker — matches supplier rows to PO line items.
+Generic record linker.
+Matches mapped rows against any list of target records — not tied to PO line items.
+Caller controls which fields to match on.
 """
 from __future__ import annotations
 from rapidfuzz import fuzz
-from mapper.models import MappedRow, MappedValues, PoMatch
+from mapper.models import MappedRow, RecordMatch
 
 
 def link_rows(
     rows: list[MappedRow],
-    po_lines: list[dict],           # list of PO line items from the system
-    sku_xref: dict[str, str],       # supplier_sku → buyer_sku cross-reference
+    records: list[dict],
+    exact_keys: list[str],       # fields to try exact match on (e.g. ["buyer_sku"])
+    fuzzy_keys: list[str],       # fields to try fuzzy match on (e.g. ["description"])
+    key_xref: dict[str, str] | None = None,  # source_value → target_value lookup
+    id_field: str = "id",        # the field in records[] that holds the record's identifier
+    fuzzy_threshold: float = 0.75,
 ) -> list[MappedRow]:
     """
-    Attempts to match each MappedRow to a PO line item.
-    Updates row.po_match in place and returns the list.
+    Attempts to match each MappedRow to a record in the caller's target list.
+    Updates row.record_match and returns the list.
     """
+    key_xref = key_xref or {}
+
     for row in rows:
-        match = _find_match(row.mapped, po_lines, sku_xref)
-        row.po_match = match
-        if match.po_line_id:
-            row.mapped.buyer_sku = row.mapped.buyer_sku or _resolve_buyer_sku(
-                row.mapped.supplier_sku, sku_xref
-            )
+        row.record_match = _find_match(
+            row.mapped, records, exact_keys, fuzzy_keys,
+            key_xref, id_field, fuzzy_threshold,
+        )
+
     return rows
 
 
 def _find_match(
-    mapped: MappedValues,
-    po_lines: list[dict],
-    sku_xref: dict[str, str],
-) -> PoMatch:
-    # Strategy 1: exact SKU lookup via cross-reference
-    buyer_sku = _resolve_buyer_sku(mapped.supplier_sku, sku_xref) or mapped.buyer_sku
-    if buyer_sku:
-        for line in po_lines:
-            if line.get("buyer_sku") == buyer_sku:
-                return PoMatch(po_line_id=line["id"], confidence=1.0, method="sku_exact")
+    mapped: dict,
+    records: list[dict],
+    exact_keys: list[str],
+    fuzzy_keys: list[str],
+    key_xref: dict[str, str],
+    id_field: str,
+    fuzzy_threshold: float,
+) -> RecordMatch:
 
-    # Strategy 2: zero-padded SKU variants
-    if mapped.supplier_sku:
-        for length in range(len(mapped.supplier_sku) + 1, 15):
-            padded = mapped.supplier_sku.zfill(length)
-            resolved = sku_xref.get(padded)
-            if resolved:
-                for line in po_lines:
-                    if line.get("buyer_sku") == resolved:
-                        return PoMatch(po_line_id=line["id"], confidence=0.9, method="sku_padded")
+    # Strategy 1: exact match on each exact_key (after optional xref lookup)
+    for key in exact_keys:
+        source_val = mapped.get(key)
+        if not source_val:
+            continue
+        target_val = key_xref.get(str(source_val), str(source_val))
+        for rec in records:
+            if str(rec.get(key, "")) == target_val:
+                return RecordMatch(
+                    record_id=str(rec.get(id_field, "")),
+                    confidence=1.0,
+                    method="exact",
+                )
 
-    # Strategy 3: PO line number direct match
-    if mapped.po_line_number is not None:
-        for line in po_lines:
-            if str(line.get("line_number")) == str(mapped.po_line_number):
-                return PoMatch(po_line_id=line["id"], confidence=0.85, method="po_line_number")
+    # Strategy 2: xref-only match (source key ≠ target key naming)
+    for source_val, target_val in key_xref.items():
+        for key in exact_keys:
+            if str(mapped.get(key, "")) == source_val:
+                for rec in records:
+                    if str(rec.get(key, "")) == target_val:
+                        return RecordMatch(
+                            record_id=str(rec.get(id_field, "")),
+                            confidence=0.9,
+                            method="key_xref",
+                        )
 
-    # Strategy 4: fuzzy description match
-    if mapped.description:
-        best_id, best_score = None, 0.0
-        for line in po_lines:
-            score = fuzz.token_set_ratio(mapped.description, line.get("description", "")) / 100.0
+    # Strategy 3: fuzzy match on fuzzy_keys
+    best_id, best_score = None, 0.0
+    for key in fuzzy_keys:
+        source_val = str(mapped.get(key, ""))
+        if not source_val:
+            continue
+        for rec in records:
+            score = fuzz.token_set_ratio(source_val, str(rec.get(key, ""))) / 100.0
             if score > best_score:
-                best_score, best_id = score, line["id"]
-        if best_score >= 0.75:
-            return PoMatch(po_line_id=best_id, confidence=round(best_score, 3), method="description_fuzzy")
+                best_score = score
+                best_id = str(rec.get(id_field, ""))
 
-    return PoMatch(po_line_id=None, confidence=0.0, method=None)
+    if best_score >= fuzzy_threshold:
+        return RecordMatch(
+            record_id=best_id,
+            confidence=round(best_score, 3),
+            method="fuzzy",
+        )
 
-
-def _resolve_buyer_sku(supplier_sku: str | None, xref: dict[str, str]) -> str | None:
-    if not supplier_sku:
-        return None
-    return xref.get(supplier_sku)
+    return RecordMatch(record_id=None, confidence=0.0, method=None)
