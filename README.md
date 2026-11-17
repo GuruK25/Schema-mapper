@@ -329,3 +329,21 @@ pytest tests/ -v
 - [ ] Active learning: use confirmed mappings to improve classifier weights
 - [ ] Multi-sheet XLSX support
 - [ ] Partial shipment splitting (one supplier row → multiple PO lines)
+
+---
+
+## Academic Credits
+
+The column mapping techniques implemented in this project — including the taxonomy of
+schema matching approaches (element-level, structure-level, instance-based, hybrid, and
+composite matchers) — are based on the following foundational research paper:
+
+> **Rahm, E., & Bernstein, P. A. (2001).**
+> *A Survey of Approaches to Automatic Schema Matching.*
+> The VLDB Journal — The International Journal on Very Large Data Bases, **10**(4), 334–350.
+> Springer. https://doi.org/10.1007/s007780100057
+
+This work is used for **research and educational purposes** to inform the design of the
+matching pipeline. No code or text from the paper is reproduced here.
+
+If you use this project in academic work, please also cite the above paper.
